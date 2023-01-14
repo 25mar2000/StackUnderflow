@@ -9,7 +9,7 @@ import "hardhat/console.sol";
 
 // Child of the ERC20 standard implementation that checks if the sender is the owner
 // specified upon creation of the contract when creating or destroying tokens
-contract RewardTokens is ERC20("Reward Token", "VT") {
+contract RewardTokens is ERC20("Reward Token", "RT") {
     address _owner;
 
     constructor(address owner){
@@ -23,6 +23,8 @@ contract RewardTokens is ERC20("Reward Token", "VT") {
         _;
     }
 
+    /*Función para comprar tokens que realiza las comprobaciones pertinentes
+    */
     function buyTokens(uint value, uint cuantity, uint _tokenPrice, uint _maxTokens, address sender) external onlyOwner{
         // Comprobamos que el valor mandado es mayor que el precio total a pagar
         require(value >= (_tokenPrice*cuantity), string(abi.encodePacked("Not enought funds to buy ", Strings.toString(cuantity), " tokens")));
@@ -34,6 +36,8 @@ contract RewardTokens is ERC20("Reward Token", "VT") {
         create(sender, cuantity);
     }
 
+    /*Función para vender tokens que hace las comprobaciones pertinentes
+    */
     function sellTokens(address sender, uint amount) external onlyOwner{
         //Cantidad de token del sender
         uint n_tokens = super.balanceOf(sender);
@@ -45,27 +49,39 @@ contract RewardTokens is ERC20("Reward Token", "VT") {
         destroy(sender, amount);
     }
 
+    /*Crea "amount" de tokens para la cuenta "account" si se comprueba que la función que llama es el Owner de RewardTokens, 
+    es decir el contrato ContractRepository
+    */
     function create(address account, uint256 amount) public onlyOwner {
         super._mint(account, amount);
     }
 
+    /*Destruye "amount" de tokens para la cuenta "account" si se comprueba que la función que llama es el Owner de RewardTokens, 
+    es decir el contrato ContractRepository
+    */
     function destroy(address account, uint256 amount) public onlyOwner {
         super._burn(account, amount);
     }
 
-    //Funciones para bloquear los tokens y desbloquearlos manteniedo el total de tokens
+    /*Funcion bloquear los tokens y desbloquearlos manteniedo el total de tokens
+    Para ello hacemos un transfer desde la cuenta del usuario al owner de este contrato
+    */
     function lockTokens(uint amount, address sender) external onlyOwner{
         super._transfer(sender, _owner, amount);
     }
 
+    /*Devolvemos los tokens de la cuenta de "_owner" a "to", implementa onlyOwner
+    */
     function transferTo(uint amount, address to) external onlyOwner{
         super._transfer(_owner, to, amount);
     }
 }
 
-//Auxiliary contract to divide the functinality
+//Contrato auxiliar con utilidades
 contract Utils{
 
+    /*Dado un array de init devuelve la posición de changeId
+    */
     function findPost(uint[] memory init, uint changeId) public pure returns (uint){
         uint i = 0;
         uint len = init.length;
@@ -93,7 +109,7 @@ contract ContractRepository {
 
     // Current participants
     mapping(address => bool) _participants;
-    uint public _numParticipants;
+    uint public _numParticipants; //Numero de participantes
 
 
     // Struct representing contracts and its mapping
@@ -106,8 +122,8 @@ contract ContractRepository {
         uint tokens;       // Número de tokens para las soluciones
         uint comunityReward; //Número e tokens para la comunidad que testee las soluciones propuestas
 
-        uint[] answers;
-        uint chosen;
+        uint[] answers; //Lista de respuestas
+        uint chosen; //Respuesta seleccionada si el Post se ha cerrado
         address creator; //Persona que pide la revisión de un contrato
     }
 
@@ -128,6 +144,7 @@ contract ContractRepository {
     mapping(uint => Answer) _answerPost;
     mapping(address => mapping(uint => bool) ) _votesPeoplePosts;
 
+    //Listas para obtener el view
     uint[] _unansweredPosts;
     uint[] _answeredPosts;
     uint[] _closedPosts;
@@ -150,6 +167,7 @@ contract ContractRepository {
         _sem = false;
     }
 
+    //Modifiers
     modifier onlyParticipants {
         require(_participants[msg.sender], "You are not a participant!");
         _;
@@ -164,6 +182,8 @@ contract ContractRepository {
         require(_postMapping[postId].chosen == 0, string(abi.encodePacked( "Post with Id: ", Strings.toString(postId) ," is already closed")));
         _;
     }
+
+    //Functions
 
     // Funcción para crear y asignar todos los tokens que se quieran comprar 
     function _buyTokens(uint value, address sender, uint cuantity) private {
@@ -189,7 +209,9 @@ contract ContractRepository {
         _participants[msg.sender] = true;
     }
 
-    function addContract(string calldata title, string calldata description, string calldata ipfsHash, address _contract, uint rewardTokens, uint comunityTokens) public onlyParticipants returns (uint){
+    /*Un usuario crea un Post mandando los datos, se le devuelve el Id de su Post 
+    */
+    function createPost(string calldata title, string calldata description, string calldata ipfsLink, address _contract, uint rewardTokens, uint comunityTokens) public onlyParticipants returns (uint){
         
         //Comprobar que el emisor tiene la sufciente cantidad de tokens para añadir el contrato
         //Cantidad de token del sender
@@ -209,7 +231,7 @@ contract ContractRepository {
         _vt.lockTokens(totalTokens, msg.sender);
 
         //Generate a new post with the given data and tokens
-        Post memory proposal = Post(title, description, ipfsHash ,_contract , rewardTokens, comunityTokens, new uint[](0), 0, msg.sender);
+        Post memory proposal = Post(title, description, ipfsLink ,_contract , rewardTokens, comunityTokens, new uint[](0), 0, msg.sender);
 
         //Set the id of the newly created proposal
         uint id = _id_counter;
@@ -217,14 +239,20 @@ contract ContractRepository {
 
         // Añadimos el post al mapping y al array de post sin responder
         _postMapping[id] = proposal;
-        _unansweredPosts.push(id);
         
-        //Devolvemos el id del post para que el particiapente sepa cual es su Post
+        //Blockeamos las listas para evitar problemas de concurrencia
+        while(_sem){}
+
+        _sem = true;
+        _unansweredPosts.push(id);
+        _sem = false;
+
+        //Devolvemos el id del post para que el participante sepa cual es su Post
         return id;
     }
 
-    //Añadimos una solución al Post
-    function addSolutionToPost(uint postId, string calldata ipfsHashSolution, address solutionContract) public onlyParticipants notClosed(postId) returns (uint){
+    //Añadimos una solución al Post determinado por "postId", devolvemos el Id de la solucion
+    function addSolutionToPost(uint postId, string calldata ipfsLinkSolution, address solutionContract) public onlyParticipants notClosed(postId) returns (uint){
 
         //Si se ha añadido un contrato debe implementar Ownable y mandarse desde el mismo address que se pide
         if(solutionContract != address(0)){
@@ -235,7 +263,7 @@ contract ContractRepository {
         Post memory _post =  _postMapping[postId];
         require(_post.creator != msg.sender, "You can't answer your own Post");
 
-        Answer memory _answer = Answer(postId, ipfsHashSolution, solutionContract, 0, new address[](0), msg.sender);
+        Answer memory _answer = Answer(postId, ipfsLinkSolution, solutionContract, 0, new address[](0), msg.sender);
         
         //Si el post no tenía respuestas lo cambiamos de una lista a otra
         if(_post.answers.length == 0){
@@ -253,7 +281,7 @@ contract ContractRepository {
 
     }
 
-    //Elegimos una solución
+    //Elegimos una solución para un post, solo puede ejecutar esta función el creados del Post si el post no está cerrado
     function closePost(uint postId, uint solutionId) public onlyPostPublisher(postId) notClosed(postId){
         Post memory _post =  _postMapping[postId];
         Answer memory _answer = _answerPost[solutionId];
@@ -287,7 +315,7 @@ contract ContractRepository {
 
     }
 
-    //Función auxiliar para cambiar el estado de una post
+    //Función auxiliar para cambiar el estado de un post
     function _changePostState(uint[] storage init, uint changeId, uint [] storage fin) private {
         
         //Blockeamos las listas para evitar problemas de concurrencia
@@ -308,23 +336,28 @@ contract ContractRepository {
 
     }
 
-    //Las votaciones positivas sirven para que el usuario sepa cuanta gente ha tratado una respuesta
-    //
+    /*Un usuario vota positivamente a la respuesta de un post dado su Id
+    Las votaciones positivas sirven para que el usuario sepa cuanta gente ha tratado una respuesta y le ha parecido bien
+    Los primeros en votar una respuesta, si esta gana, se llevan 1 token de los puestos para la comunidad 
+    */
     function votePosAnswerId(uint idAnswer) public onlyParticipants{
 
         //Sacamos la solución
         Answer memory _answer = _answerPost[idAnswer];
         uint postId = _answer._post;
         Post memory _post = _postMapping[postId];
-        
-        
+        // Check que el ID se corresponde con un Post
+        require(bytes(_post.title).length > 0, "There is no Post corresponding to the provided ID!");
+        //Check que la solución existe
+        require(_answer._post != 0, string(abi.encodePacked("Answer asocited with id: ", Strings.toString(idAnswer), " does not exist")));
+
         //Testeamos que el post está abierto
         require(_postMapping[postId].chosen == 0, string(abi.encodePacked( "Post with Id: ", Strings.toString(postId) ," is already closed")));
         //Testeamos que la persona no haya votado ya aun a solución
-        require(_votesPeoplePosts[msg.sender][postId] == false, string(abi.encodePacked("You have already voted an answer to this question: ", Strings.toString(idAnswer))));
+        require(_votesPeoplePosts[msg.sender][postId] == false, string(abi.encodePacked("You have already voted an answer to this question: ", Strings.toString(postId))));
         
         require(_answer._creator != msg.sender, "You cannot vote your own answer");
-        
+
         //Sumamos su voto positivo
         uint posV = ++_answerPost[idAnswer].posVotes;
         
@@ -341,20 +374,20 @@ contract ContractRepository {
         _buyTokens(msg.value, msg.sender, amount);
     }
 
-    //Devuelve el dinero de los tokens
+    //Devuelve el dinero de los tokens "amount"
     function sellTokens(uint amount) onlyParticipants public payable {
 
         _vt.sellTokens(msg.sender, amount);
         
-        // Send corresponding value
+        // Devolvemos el valor
         uint value = amount * _tokenPrice;
         payable(msg.sender).transfer(value);
     }
 
-    //View functions
+    //View functions 
 
     //dado un post Id te devuelve los datos de un Post
-    function getPostInfo(uint postId) public view onlyParticipants returns (string memory, string memory, string memory, address, uint, uint, uint[] memory, uint, address) {
+    function getPostInfo(uint postId) public view returns (string memory, string memory, string memory, address, uint, uint, uint[] memory, uint, address) {
         Post memory _post = _postMapping[postId];
 
         // Check que el ID se corresponde con un Post
@@ -362,24 +395,9 @@ contract ContractRepository {
         
         return (_post.title, _post.description, _post._ipfsLink, _post._contract, _post.tokens, _post.comunityReward, _post.answers, _post.chosen, _post.creator);
     }
-    function getTokenAmount()public view returns (uint){
+    function getTokenAmount()public view onlyParticipants returns (uint){
         return _vt.balanceOf(msg.sender);
     }
-
-    //Array de ids de los posts no respondidos aún
-    /*function getUnansweredPostsIds() public view returns (uint[] memory){
-        return _unansweredPosts;
-    }
-
-    //Array de ids de los posts ya respondidos
-    function getAnsweredPostsIds() public view returns (uint[] memory){
-        return _answeredPosts;
-    }
-
-    //Array de ids de los posts cerrados
-    function getClosedPostsIds() public view returns (uint[] memory){
-        return _closedPosts;
-    }*/
 
     //Array de Posts sin responder 
     function getUnansweredPosts() public view returns (uint[] memory, Post[] memory){
@@ -396,6 +414,7 @@ contract ContractRepository {
         return (_closedPosts, _getPost(_closedPosts));
     }
 
+    //Función auxiliar para obtener un array de Posts de un tipo determinado
     function _getPost(uint[] memory postIds) private view returns (Post[] memory){
         uint len = postIds.length;
         Post[] memory _posts = new Post[](len);
@@ -406,16 +425,20 @@ contract ContractRepository {
         return _posts;
     }
 
-    //Get answer from ID
+    //Obtenemos info de una respuesta por su ID
     function getAnswerFromId(uint answerId) public view returns(uint _post, string memory _ipfsLink, address _solution, uint postVotes, address _creator){
+        //Respuesta con Id answerId
         Answer memory _answer = _answerPost[answerId];
-
-        require(_answer._post != 0, string(abi.encodePacked("Answer asocited with id (", Strings.toString(answerId), " does not exist")));
+        //Tiene que existir la respuesta
+        require(_answer._post != 0, string(abi.encodePacked("Answer asocited with id:", Strings.toString(answerId), " does not exist")));
         
+        //Devolvemos sus datos
         return (_answer._post, _answer._ipfsLink, _answer._solution, _answer.posVotes, _answer._creator);
 
     }
 
+    //Dado un post devuelve su lista de respuesta así como un booleano si el post no está cerrado
+    //es decir si no se ha seleccionado ya una repuesta
     function getAnswersFromPost(uint postId) public view returns(uint[] memory, Answer[] memory, bool){
         Post memory _post = _postMapping[postId];
         require(bytes(_post.title).length > 0, "There is no Post corresponding to the provided ID!");
