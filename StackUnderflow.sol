@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0
+// SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.0;
 
@@ -43,7 +43,7 @@ contract RewardTokens is ERC20("Reward Token", "RT") {
         uint n_tokens = super.balanceOf(sender);
 
         // Check if participant has enough tokens
-        require(n_tokens >= amount, string(abi.encodePacked("You don't have enough tokens (amount: ", Strings.toString(n_tokens))));
+        require(n_tokens >= amount, string(abi.encodePacked("You don't have enough tokens (amount: ", Strings.toString(n_tokens), " )")));
 
         // Destroy tokens
         destroy(sender, amount);
@@ -225,7 +225,7 @@ contract ContractRepository {
 
         // Check if participant has enough tokens
         uint totalTokens = (rewardTokens+comunityTokens);
-        require(n_tokens >= totalTokens, string(abi.encodePacked("No tienes suficentes tokens, tienes: ", Strings.toString(n_tokens), ", has puesto: ", Strings.toString(rewardTokens+comunityTokens))));
+        require(n_tokens >= totalTokens, string(abi.encodePacked("You don't have enough tokens, you have: ", Strings.toString(n_tokens), ", you posted: ", Strings.toString(rewardTokens+comunityTokens))));
 
         // Destruimos los tokens
         _vt.lockTokens(totalTokens, msg.sender);
@@ -289,7 +289,7 @@ contract ContractRepository {
         Answer memory _answer = _answerPost[solutionId];
  
         //Comprobamos que la respuesta existe y está asociada al post
-        require(_answer._post != 0, string(abi.encodePacked("Answer asocited with id (", Strings.toString(solutionId), " does not exist")));
+        require(_answer._post != 0, string(abi.encodePacked("Answer asocited with id:", Strings.toString(solutionId), " does not exist")));
         require(_answer._post == postId, "Answer does not belong to the contract");
         
         //Asignamos el id de la solución elegida
@@ -432,7 +432,7 @@ contract ContractRepository {
         //Respuesta con Id answerId
         Answer memory _answer = _answerPost[answerId];
         //Tiene que existir la respuesta
-        require(_answer._post != 0, string(abi.encodePacked("Answer asocited with id:", Strings.toString(answerId), " does not exist")));
+        require(_answer._post != 0, string(abi.encodePacked("Answer asocited with id: ", Strings.toString(answerId), " does not exist")));
         
         //Devolvemos sus datos
         return (_answer._post, _answer._ipfsLink, _answer._solution, _answer.posVotes, _answer._creator);
