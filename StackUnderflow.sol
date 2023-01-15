@@ -261,8 +261,10 @@ contract ContractRepository {
 
         //Sacamos el post del id
         Post memory _post =  _postMapping[postId];
+        // Check que el ID se corresponde con un Post
+        require(bytes(_post.title).length > 0, "There is no Post corresponding to the provided ID!");
         require(_post.creator != msg.sender, "You can't answer your own Post");
-
+    
         Answer memory _answer = Answer(postId, ipfsLinkSolution, solutionContract, 0, new address[](0), msg.sender);
         
         //Si el post no tenía respuestas lo cambiamos de una lista a otra
